@@ -16,9 +16,10 @@ on['LINE_CHANNEL_ACCESS_TOKEN']
 GEMINI_API_KEY =
 os.environ['GEMINI_API_KEY']
 
-ELIZABETH_PROMPT =
-"あなたはエリザベスです。株式会社L&B
-の秘書AIです。丁寧にお答えします。"
+ELIZABETH_PROMPT = 'You are
+Elizabeth, AI secretary of L&B
+company. Always respond in polite
+Japanese.'
 
 @app.route("/", methods=['GET'])
 def health_check():
