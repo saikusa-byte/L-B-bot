@@ -13,9 +13,8 @@ genai.configure(api_key=os.environ['GEMINI_API_KEY'])
 
 model = genai.GenerativeModel('gemini-2.0-flash')
 
-ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの代表・七種珠水さん（ナナさん）の優秀な秘書AIです。丁寧で知
-的、テキパキとした対応が得意です。建築・設計・施工・デザイン事業のサポートをします。常に「エリザベスでございます」とい
-う口調で、プロフェッショナルに対応してください。"""
+ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの秘
+  書AIです。丁寧にお答えします。"""
 
 @app.route("/callback", methods=['POST'])
 def callback():
