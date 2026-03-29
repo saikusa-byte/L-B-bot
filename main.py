@@ -46,13 +46,18 @@ def callback():
             gemini_data = {
                 "contents": [{"parts": [{"text": prompt}]}]
             }
-            gemini_response = requests.post(gemini_url, json=gemini_data)
-            gemini_json = gemini_response.json()
-            print("Gemini response:", gemini_json)
-            if 'candidates' not in gemini_json:
-                reply_text = "エラーが発生しました: " + str(gemini_json.get('error', {}).get('message', '不明なエラー'))
-            else:
-                reply_text = gemini_json['candidates'][0]['content']['parts'][0]['text']
+            try:
+                gemini_response = requests.post(gemini_url, json=gemini_data)
+                print("Gemini status:", gemini_response.status_code)
+                print("Gemini body:", gemini_response.text)
+                gemini_json = gemini_response.json()
+                if 'candidates' not in gemini_json:
+                    reply_text = "エラー: " + str(gemini_json.get('error', {}).get('message', str(gemini_json)))
+                else:
+                    reply_text = gemini_json['candidates'][0]['content']['parts'][0]['text']
+            except Exception as e:
+                print("Exception:", str(e))
+                reply_text = "例外エラー: " + str(e)
 
             line_url = "https://api.line.me/v2/bot/message/reply"
             headers = {
