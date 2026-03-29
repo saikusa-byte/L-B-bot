@@ -47,7 +47,12 @@ def callback():
                 "contents": [{"parts": [{"text": prompt}]}]
             }
             gemini_response = requests.post(gemini_url, json=gemini_data)
-            reply_text = gemini_response.json()['candidates'][0]['content']['parts'][0]['text']
+            gemini_json = gemini_response.json()
+            print("Gemini response:", gemini_json)
+            if 'candidates' not in gemini_json:
+                reply_text = "エラーが発生しました: " + str(gemini_json.get('error', {}).get('message', '不明なエラー'))
+            else:
+                reply_text = gemini_json['candidates'][0]['content']['parts'][0]['text']
 
             line_url = "https://api.line.me/v2/bot/message/reply"
             headers = {
