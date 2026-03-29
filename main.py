@@ -44,10 +44,10 @@ message=TextMessage)
 def handle_message(event):
     user_message =
 event.message.text
-    url = f"https://generativelangua
-ge.googleapis.com/v1/models/gemini-1
-.5-flash:generateContent?key={os.env
-iron['GEMINI_API_KEY']}"
+    url = "https://generativelanguag
+e.googleapis.com/v1beta/models/gemin
+i-1.5-flash:generateContent?key=" +
+os.environ['GEMINI_API_KEY']
     data = {"contents": [{"parts":
 [{"text": ELIZABETH_PROMPT +
 "\n\nナナさん: " + user_message}]}]}
