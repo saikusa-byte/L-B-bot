@@ -1,21 +1,20 @@
 from flask import Flask, request,
 abort
-from linebot import LineBotApi,
-WebhookHandler
-from linebot.exceptions import
-InvalidSignatureError
-from linebot.models import
-MessageEvent, TextMessage,
-TextSendMessage
 import requests
+import hmac
+import hashlib
+import base64
+import json
 import os
 
 app = Flask(__name__)
 
-line_bot_api = LineBotApi(os.environ
-['LINE_CHANNEL_ACCESS_TOKEN'])
-handler = WebhookHandler(os.environ[
-'LINE_CHANNEL_SECRET'])
+LINE_CHANNEL_SECRET =
+os.environ['LINE_CHANNEL_SECRET']
+LINE_CHANNEL_ACCESS_TOKEN = os.envir
+on['LINE_CHANNEL_ACCESS_TOKEN']
+GEMINI_API_KEY =
+os.environ['GEMINI_API_KEY']
 
 ELIZABETH_PROMPT =
 "あなたはエリザベスです。株式会社L&B
@@ -28,40 +27,69 @@ def health_check():
 @app.route("/callback",
 methods=['POST'])
 def callback():
-    signature =
-request.headers['X-Line-Signature']
+    signature = request.headers.get(
+'X-Line-Signature', '')
     body =
 request.get_data(as_text=True)
-    try:
-        handler.handle(body,
-signature)
-    except InvalidSignatureError:
-        abort(400)
-    return 'OK'
 
-@handler.add(MessageEvent,
-message=TextMessage)
-def handle_message(event):
-    user_message =
-event.message.text
-    url = "https://generativelanguag
-e.googleapis.com/v1beta/models/gemin
-i-1.5-flash:generateContent?key=" +
-os.environ['GEMINI_API_KEY']
-    data = {"contents": [{"parts":
-[{"text": ELIZABETH_PROMPT +
-"\n\nナナさん: " + user_message}]}]}
-    response = requests.post(url,
-json=data)
-    reply_text =
-response.json()['candidates'][0]['co
-ntent']['parts'][0]['text']
-    line_bot_api.reply_message(event
-.reply_token,
-TextSendMessage(text=reply_text))
+    hash = hmac.new(LINE_CHANNEL_SEC
+RET.encode('utf-8'),
+
+body.encode('utf-8'),
+hashlib.sha256).digest()
+    expected = base64.b64encode(hash
+).decode('utf-8')
+    if signature != expected:
+        abort(400)
+
+    data = json.loads(body)
+    for event in data.get('events',
+[]):
+        if event['type'] ==
+'message' and
+event['message']['type'] == 'text':
+            user_message =
+event['message']['text']
+            reply_token =
+event['replyToken']
+
+            gemini_url =
+"https://generativelanguage.googleap
+is.com/v1beta/models/gemini-1.5-flas
+h:generateContent?key=" +
+GEMINI_API_KEY
+            gemini_data =
+{"contents": [{"parts": [{"text":
+ELIZABETH_PROMPT + "\n\nナナさん: "
++ user_message}]}]}
+            gemini_response =
+requests.post(gemini_url,
+json=gemini_data)
+            reply_text =
+gemini_response.json()['candidates']
+[0]['content']['parts'][0]['text']
+
+            line_url = "https://api.
+line.me/v2/bot/message/reply"
+            headers = {
+                "Authorization":
+"Bearer " +
+LINE_CHANNEL_ACCESS_TOKEN,
+                "Content-Type":
+"application/json"
+            }
+            line_data =
+{"replyToken": reply_token,
+"messages": [{"type": "text",
+"text": reply_text}]}
+            requests.post(line_url,
+headers=headers, json=line_data)
+
+    return 'OK'
 
 if __name__ == "__main__":
     port =
 int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0',
 port=port)
+ 
