@@ -1,28 +1,34 @@
 from flask import Flask, request, abort
   from linebot import LineBotApi, WebhookHandler
-  from linebot.exceptions import InvalidSignatureError
-  from linebot.models import MessageEvent, TextMessage, TextSendMessage
+  from linebot.exceptions import
+  InvalidSignatureError
+  from linebot.models import MessageEvent,
+  TextMessage, TextSendMessage
   import google.generativeai as genai
   import os
 
   app = Flask(__name__)
 
-  line_bot_api = LineBotApi(os.environ['LINE_CHANNEL_ACCESS_TOKEN'])
-  handler = WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
-  genai.configure(api_key=os.environ['GEMINI_API_KEY'])
+  line_bot_api = LineBotApi(os.environ['LINE_CHANNEL
+  _ACCESS_TOKEN'])
+  handler =
+  WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
+  genai.configure(api_key=os.environ['GEMINI_API_KEY
+  '])
 
   model = genai.GenerativeModel('gemini-1.5-flash')
 
-  ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの代表・七種
-  珠水さん（ナナさん）の優秀な秘書AIです。
-  丁寧で知的、テキパキとした対応が得意です。建築・設計・施工・デザイン事
-  業のサポートをします。
-  常に「エリザベスでございます」という口調で、プロフェッショナルに対応し
-  てください。"""
+  ELIZABETH_PROMPT = """あなたはエリザベスです。株式
+  会社L&Bの代表・七種珠水さん（ナナさん）の優秀な秘
+  書AIです。丁寧で知的、テキパキとした対応が得意です
+  。建築・設計・施工・デザイン事業のサポートをします
+  。常に「エリザベスでございます」という口調で、プロ
+  フェッショナルに対応してください。"""
 
   @app.route("/callback", methods=['POST'])
   def callback():
-      signature = request.headers['X-Line-Signature']
+      signature =
+  request.headers['X-Line-Signature']
       body = request.get_data(as_text=True)
       try:
           handler.handle(body, signature)
@@ -33,7 +39,8 @@ from flask import Flask, request, abort
   @handler.add(MessageEvent, message=TextMessage)
   def handle_message(event):
       user_message = event.message.text
-      response = model.generate_content(ELIZABETH_PROMPT +
+      response =
+  model.generate_content(ELIZABETH_PROMPT +
   "\n\nナナさん: " + user_message)
       line_bot_api.reply_message(
           event.reply_token,
