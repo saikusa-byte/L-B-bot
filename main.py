@@ -39,7 +39,7 @@ def callback():
             reply_token = event['replyToken']
 
             base_url = "https://generativelanguage.googleapis.com"
-            model_path = "/v1beta/models/gemini-1.5-flash:generateContent"
+            model_path = "/v1beta/models/gemini-2.0-flash:generateContent"
             gemini_url = base_url + model_path + "?key=" + GEMINI_API_KEY
 
             prompt = ELIZABETH_PROMPT + "\n\nナナさん: " + user_message
