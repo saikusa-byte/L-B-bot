@@ -42,7 +42,7 @@ def handle_message(event):
     user_message = event.message.text
     response =
 client.models.generate_content(
-        model='gemini-2.0-flash',
+        model='gemini-2.0-flash-lite',
         contents=ELIZABETH_PROMPT +
 "\n\nナナさん: " + user_message
     )
