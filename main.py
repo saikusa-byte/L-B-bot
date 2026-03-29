@@ -11,7 +11,7 @@ line_bot_api = LineBotApi(os.environ['LINE_CHANNEL_ACCESS_TOKEN'])
 handler = WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
 genai.configure(api_key=os.environ['GEMINI_API_KEY'])
 
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの代表・七種珠水さん（ナナさん）の優秀な秘書AIです。丁寧で知
 的、テキパキとした対応が得意です。建築・設計・施工・デザイン事業のサポートをします。常に「エリザベスでございます」とい
