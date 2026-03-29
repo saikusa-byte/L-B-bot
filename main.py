@@ -6,6 +6,8 @@ import google.generativeai as genai
 import os
 
 app = Flask(__name__)
+@app.route("/", methods=['GET'])
+  def health_check():
 
 line_bot_api = LineBotApi(os.environ['LINE_CHANNEL_ACCESS_TOKEN'])
 handler = WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
