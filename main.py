@@ -694,7 +694,7 @@ def send_encouraging_messages():
 
 
 # ============================================================
-# P1事例集
+# P1報告内容
 # ============================================================
 
 P1_HEADERS = ['記録日時', '投稿者', '①日時', '②案件名', '③概要', '④内容', '⑤原因', '⑥クライアント対応策', '⑦関係者対応策', '⑧社内改善策']
@@ -738,7 +738,7 @@ def parse_p1_report(text):
 
 
 def write_p1_to_sheet(poster_name, p1_data):
-    """P1事例をスプレッドシートの「P1事例集」タブに保存する"""
+    """P1事例をスプレッドシートの「P1報告内容」タブに保存する"""
     try:
         creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
         if not creds_json or not P1_SPREADSHEET_ID:
@@ -753,9 +753,9 @@ def write_p1_to_sheet(poster_name, p1_data):
         spreadsheet = client.open_by_key(P1_SPREADSHEET_ID)
 
         try:
-            p1_sheet = spreadsheet.worksheet("P1事例集")
+            p1_sheet = spreadsheet.worksheet("P1報告内容")
         except Exception:
-            p1_sheet = spreadsheet.add_worksheet(title="P1事例集", rows=200, cols=len(P1_HEADERS))
+            p1_sheet = spreadsheet.add_worksheet(title="P1報告内容", rows=200, cols=len(P1_HEADERS))
 
         if not p1_sheet.row_values(1):
             p1_sheet.append_row(P1_HEADERS)
