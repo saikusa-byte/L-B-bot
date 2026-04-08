@@ -7,6 +7,8 @@ import json
 import os
 import re
 from datetime import datetime, timezone, timedelta
+import gspread
+from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
@@ -18,6 +20,7 @@ UPSTASH_REDIS_REST_TOKEN = os.environ['UPSTASH_REDIS_REST_TOKEN']
 NANA_LINE_USER_ID = os.environ.get('NANA_LINE_USER_ID', '')
 
 JST = timezone(timedelta(hours=9))
+SPREADSHEET_ID = os.environ.get('GOOGLE_SPREADSHEET_ID', '')
 
 ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。
 常に丁寧な日本語で、簡潔かつ的確に応答してください。
@@ -54,6 +57,81 @@ L&Bを世界トップレベルのデザイン会社にする。売上100億円�
 時刻が不明な場合はtimeを""にしてください。
 ユーザーが「予定を見せて」「スケジュールは？」「今週の予定は？」「予定一覧」などと聞いた場合は、返答に[[SHOW_SCHEDULE]]を含めてください。
 予定の削除を求められた場合は[[DELETE_SCHEDULE:番号]]を含めてください（番号は1始まり）。"""
+
+
+# ============================================================
+# Google Sheets ヘルパー
+# ============================================================
+
+SHEET_HEADERS = ['日付', '名前', '出社時刻', '退社時刻', '勤務時間', '体調(朝)', '本日タスク', '体調(夜)', '完了タスク', '共有事項']
+
+def get_sheet():
+    creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+    if not creds_json or not SPREADSHEET_ID:
+        return None
+    try:
+        creds_dict = json.loads(creds_json)
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        sheet = spreadsheet.sheet1
+        if not sheet.row_values(1):
+            sheet.append_row(SHEET_HEADERS)
+        return sheet
+    except Exception as e:
+        print("Sheets error:", e)
+        return None
+
+
+def find_row(sheet, date, name):
+    try:
+        all_values = sheet.get_all_values()
+        for i, row in enumerate(all_values[1:], 2):
+            if len(row) >= 2 and row[0] == date and row[1] == name:
+                return i
+    except Exception:
+        pass
+    return None
+
+
+def write_morning_to_sheet(date, name, check_in_time, health_score, tasks):
+    try:
+        sheet = get_sheet()
+        if not sheet:
+            return
+        row_idx = find_row(sheet, date, name)
+        task_str = ' / '.join(tasks) if tasks else ''
+        if row_idx:
+            sheet.update_cell(row_idx, 3, check_in_time)
+            sheet.update_cell(row_idx, 6, str(health_score))
+            sheet.update_cell(row_idx, 7, task_str)
+        else:
+            sheet.append_row([date, name, check_in_time, '', '', str(health_score), task_str, '', '', ''])
+    except Exception as e:
+        print("Sheets morning write error:", e)
+
+
+def write_evening_to_sheet(date, name, checkout_time, work_hours, health_score, completed_tasks, shared):
+    try:
+        sheet = get_sheet()
+        if not sheet:
+            return
+        row_idx = find_row(sheet, date, name)
+        tasks_str = ' / '.join(completed_tasks) if completed_tasks else ''
+        if row_idx:
+            sheet.update_cell(row_idx, 4, checkout_time)
+            sheet.update_cell(row_idx, 5, work_hours)
+            sheet.update_cell(row_idx, 8, str(health_score))
+            sheet.update_cell(row_idx, 9, tasks_str)
+            sheet.update_cell(row_idx, 10, shared)
+        else:
+            sheet.append_row([date, name, '', checkout_time, work_hours, '', '', str(health_score), tasks_str, shared])
+    except Exception as e:
+        print("Sheets evening write error:", e)
 
 
 # ============================================================
@@ -208,6 +286,7 @@ def save_morning_report(user_id, name, report_data, timestamp_ms):
     }
     redis_set(f"att:{date}:{user_id}:am", data)
     register_staff(user_id, name)
+    write_morning_to_sheet(date, name, data["check_in_time"], data["health_score"], data["tasks"])
 
 
 def save_evening_report(user_id, name, report_data, timestamp_ms):
@@ -242,6 +321,7 @@ def save_evening_report(user_id, name, report_data, timestamp_ms):
     }
     redis_set(f"att:{date}:{user_id}:pm", data)
     register_staff(user_id, name)
+    write_evening_to_sheet(date, name, checkout_time, data["work_hours"], data["health_score"], data["completed_tasks"], data["shared"])
 
 
 # ============================================================
