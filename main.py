@@ -772,9 +772,7 @@ def write_p1_to_sheet(poster_name, p1_data):
             clean(p1_data.get('partners', '')),
             clean(p1_data.get('internal', '')),
         ]
-        next_row = len(all_rows) + 1
-        col_end = chr(ord('A') + len(row) - 1)
-        p1_sheet.update(f'A{next_row}:{col_end}{next_row}', [row])
+        p1_sheet.append_row(row, value_input_option='USER_ENTERED', insert_data_option='INSERT_ROWS')
         return True
     except Exception as e:
         print("P1 sheet write error:", e)
