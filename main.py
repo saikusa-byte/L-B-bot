@@ -839,10 +839,7 @@ def callback():
                 result = write_p1_to_sheet(name, p1_data)
                 if result is True:
                     reply_message(reply_token,
-                        f"📋 {name}さん、P1事例を記録しました。\n"
-                        f"案件：{p1_data.get('project','')}\n"
-                        f"概要：{p1_data.get('summary','')}\n\n"
-                        f"スプレッドシートの「P1事例集」タブに保存されています。")
+                        f"📋 {name}さん、貴重な報告と、会社への貢献をありがとうございます！")
                 else:
                     reply_message(reply_token, f"⚠️ P1保存エラー：{result}")
                 continue
