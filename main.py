@@ -856,8 +856,18 @@ def callback():
                 p1_data = parse_p1_report(user_message)
                 result = write_p1_to_sheet(name, p1_data)
                 if result is True:
-                    reply_message(reply_token,
-                        f"📋 {name}さん、貴重な報告と、会社への貢献をありがとうございます！")
+                    p1_prompt = (
+                        f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+                        f"{name}さんが「{p1_data.get('summary','問題事例')}」というP1報告を提出してくれました。\n"
+                        f"問題や失敗を正直に報告し、改善策まで考えて共有することは、会社にとって非常に貴重な行動です。\n"
+                        f"以下の視点からメッセージを作成してください：\n"
+                        f"・報告してくれたことへの心からの感謝\n"
+                        f"・問題に向き合い、正直に共有する勇気を称える言葉\n"
+                        f"・この報告が会社全体の成長につながるという前向きな言葉\n"
+                        f"2〜3文で。温かく誠実なトーンで。毎回違う表現にしてください。"
+                    )
+                    p1_reply = gemini_generate(p1_prompt) or f"{name}さん、貴重なご報告をありがとうございます。"
+                    reply_message(reply_token, f"📋 {p1_reply}")
                 else:
                     reply_message(reply_token, f"⚠️ P1保存エラー：{result}")
                 continue
