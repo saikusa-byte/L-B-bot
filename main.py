@@ -779,6 +779,131 @@ def write_p1_to_sheet(poster_name, p1_data):
         return str(e)
 
 
+def write_p1_action_items(p1_data, poster_name):
+    """P1報告の改善策を「改善策管理」シートに追加する"""
+    try:
+        creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+        if not creds_json or not P1_SPREADSHEET_ID:
+            return
+        creds_dict = json.loads(creds_json)
+        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(P1_SPREADSHEET_ID)
+
+        try:
+            sheet = spreadsheet.worksheet("改善策管理")
+        except Exception:
+            sheet = spreadsheet.add_worksheet(title="改善策管理", rows=500, cols=9)
+
+        headers = ['記録日', '投稿者', '案件名', '概要', '種別', '改善策内容', '状況', '確認日', '備考']
+        if not sheet.row_values(1):
+            sheet.append_row(headers)
+
+        now_str = datetime.now(JST).strftime("%Y-%m-%d")
+        project = p1_data.get('project', '')
+        summary = p1_data.get('summary', '')
+
+        actions = [
+            ('クライアント対応策', p1_data.get('client', '')),
+            ('関係者対応策',       p1_data.get('partners', '')),
+            ('社内改善策',         p1_data.get('internal', '')),
+        ]
+        for kind, content in actions:
+            if content and content not in ('なし', 'なし。', '-', ''):
+                row = [now_str, poster_name, project, summary, kind, content, '未実施', '', '']
+                sheet.append_row(row, value_input_option='USER_ENTERED', insert_data_option='INSERT_ROWS')
+    except Exception as e:
+        print("Action items write error:", e)
+
+
+def update_p1_monthly(year_month=None):
+    """P1報告を月次で集計・カテゴリ分類してシートに書き込む"""
+    try:
+        creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+        if not creds_json or not P1_SPREADSHEET_ID:
+            return
+        creds_dict = json.loads(creds_json)
+        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(P1_SPREADSHEET_ID)
+
+        # P1報告内容シートを読む
+        try:
+            p1_sheet = spreadsheet.worksheet("P1報告内容")
+        except Exception:
+            return
+        all_rows = p1_sheet.get_all_values()
+        if len(all_rows) <= 1:
+            return
+
+        if not year_month:
+            year_month = datetime.now(JST).strftime("%Y-%m")
+
+        # 対象月のデータ抽出
+        # 列: 記録日時,投稿者,①日時,②案件名,③概要,④内容,⑤原因,⑥クライアント,⑦関係者,⑧社内
+        cases = []
+        for row in all_rows[1:]:
+            if len(row) >= 1 and row[0].startswith(year_month):
+                cases.append({
+                    'project': row[3] if len(row) > 3 else '',
+                    'summary': row[4] if len(row) > 4 else '',
+                    'content': row[5] if len(row) > 5 else '',
+                    'cause':   row[6] if len(row) > 6 else '',
+                    'client':  row[7] if len(row) > 7 else '',
+                    'partners':row[8] if len(row) > 8 else '',
+                    'internal':row[9] if len(row) > 9 else '',
+                })
+
+        if not cases:
+            return
+
+        # Geminiで分析
+        cases_text = "\n---\n".join([
+            f"案件名：{c['project']}\n概要：{c['summary']}\n原因：{c['cause']}\n社内改善策：{c['internal']}"
+            for c in cases
+        ])
+        analysis_prompt = (
+            f"以下は{year_month}の株式会社L&BのP1報告（トラブル・問題事例）です。\n\n"
+            f"{cases_text}\n\n"
+            f"以下の形式で分析してください：\n"
+            f"【カテゴリー分類】各案件をカテゴリー（例：工程管理/顧客対応/施工品質/社内連携/書類・申請 など）に分類\n"
+            f"【原因パターン】共通して見られる原因の傾向を2〜3点\n"
+            f"【重点改善アクション】最も優先すべき改善策を2〜3点\n"
+            f"【社長へのコメント】全体を踏まえた七種社長への一言\n"
+            f"簡潔に、箇条書きで。"
+        )
+        analysis = gemini_generate(analysis_prompt) or "（AI分析取得できませんでした）"
+
+        # P1月次集計シート
+        try:
+            monthly = spreadsheet.worksheet("P1月次集計")
+        except Exception:
+            monthly = spreadsheet.add_worksheet(title="P1月次集計", rows=200, cols=6)
+
+        m_headers = ['年月', '件数', 'カテゴリー分類', '原因パターン・重点改善アクション', '社長へのコメント', '更新日時']
+        if not monthly.row_values(1):
+            monthly.append_row(m_headers)
+
+        now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
+        new_row = [year_month, len(cases), analysis, '', '', now_str]
+
+        # 既存行を探して上書き or 追加
+        all_monthly = monthly.get_all_values()
+        updated = False
+        for i, row in enumerate(all_monthly[1:], 2):
+            if row and row[0] == year_month:
+                monthly.update(f'A{i}:F{i}', [new_row])
+                updated = True
+                break
+        if not updated:
+            monthly.append_row(new_row, value_input_option='USER_ENTERED', insert_data_option='INSERT_ROWS')
+
+    except Exception as e:
+        print("P1 monthly summary error:", e)
+
+
 # ============================================================
 # エンドポイント
 # ============================================================
@@ -806,6 +931,17 @@ def evening_summary():
         push_message(NANA_LINE_USER_ID, summary)
     send_encouraging_messages()
     return summary
+
+
+@app.route("/p1_monthly", methods=['GET', 'POST'])
+def p1_monthly():
+    """月次P1集計：cron-job.orgから毎月1日に呼び出す"""
+    year_month = request.args.get('month') or datetime.now(JST).strftime("%Y-%m")
+    update_p1_monthly(year_month)
+    msg = f"📊 {year_month}のP1月次集計を更新しました。"
+    if NANA_LINE_USER_ID:
+        push_message(NANA_LINE_USER_ID, msg)
+    return msg
 
 
 @app.route("/callback", methods=['POST'])
@@ -854,6 +990,7 @@ def callback():
             if '①日時' in user_message and '②案件名' in user_message:
                 p1_data = parse_p1_report(user_message)
                 result = write_p1_to_sheet(name, p1_data)
+                write_p1_action_items(p1_data, name)
                 if result is True:
                     praise_angles = [
                         "問題に真剣に向き合った誠実さと勇気",
