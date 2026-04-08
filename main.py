@@ -134,6 +134,104 @@ def write_evening_to_sheet(date, name, checkout_time, work_hours, health_score, 
         print("Sheets evening write error:", e)
 
 
+def update_monthly_summary(year_month=None):
+    """月次集計シートを更新する（例: year_month='2026-04'）"""
+    try:
+        creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+        if not creds_json or not SPREADSHEET_ID:
+            return
+        creds_dict = json.loads(creds_json)
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+
+        # 勤怠記録シートからデータ取得
+        raw_sheet = spreadsheet.sheet1
+        all_rows = raw_sheet.get_all_values()
+        if len(all_rows) <= 1:
+            return
+
+        if not year_month:
+            year_month = datetime.now(JST).strftime("%Y-%m")
+
+        # 対象月のデータを集計
+        summary = {}  # name -> {days, total_minutes, am_scores, pm_scores}
+        for row in all_rows[1:]:
+            if len(row) < 5:
+                continue
+            if not row[0].startswith(year_month):
+                continue
+            name = row[1]
+            if not name:
+                continue
+            if name not in summary:
+                summary[name] = {'days': 0, 'total_minutes': 0, 'am_scores': [], 'pm_scores': []}
+
+            # 出社日数（出社時刻があれば）
+            if row[2]:
+                summary[name]['days'] += 1
+
+            # 勤務時間（例: "8時間30分"）
+            if row[4]:
+                m = re.search(r'(\d+)時間(\d+)分', row[4])
+                if m:
+                    summary[name]['total_minutes'] += int(m.group(1)) * 60 + int(m.group(2))
+
+            # 体調点数
+            try:
+                if row[5]:
+                    summary[name]['am_scores'].append(float(row[5]))
+            except Exception:
+                pass
+            try:
+                if row[7]:
+                    summary[name]['pm_scores'].append(float(row[7]))
+            except Exception:
+                pass
+
+        if not summary:
+            return
+
+        # 月次集計シートを取得または作成
+        try:
+            monthly_sheet = spreadsheet.worksheet("月次集計")
+        except Exception:
+            monthly_sheet = spreadsheet.add_worksheet(title="月次集計", rows=100, cols=10)
+
+        # ヘッダー設定
+        headers = ['年月', '名前', '出社日数', '合計勤務時間', '平均体調(朝)', '平均体調(夜)']
+        existing = monthly_sheet.get_all_values()
+        if not existing or not existing[0]:
+            monthly_sheet.append_row(headers)
+            existing = [headers]
+
+        # 既存データから対象月の行番号を探して更新 or 追加
+        for name, data in summary.items():
+            total_h = data['total_minutes'] // 60
+            total_m = data['total_minutes'] % 60
+            total_str = f"{total_h}時間{total_m}分"
+            am_avg = round(sum(data['am_scores']) / len(data['am_scores']), 1) if data['am_scores'] else ''
+            pm_avg = round(sum(data['pm_scores']) / len(data['pm_scores']), 1) if data['pm_scores'] else ''
+            new_row = [year_month, name, data['days'], total_str, am_avg, pm_avg]
+
+            # 既存行を探す
+            found = False
+            for i, row in enumerate(existing[1:], 2):
+                if len(row) >= 2 and row[0] == year_month and row[1] == name:
+                    monthly_sheet.update(f'A{i}:F{i}', [new_row])
+                    found = True
+                    break
+            if not found:
+                monthly_sheet.append_row(new_row)
+
+    except Exception as e:
+        print("Monthly summary error:", e)
+
+
 # ============================================================
 # Redis ヘルパー
 # ============================================================
@@ -322,6 +420,7 @@ def save_evening_report(user_id, name, report_data, timestamp_ms):
     redis_set(f"att:{date}:{user_id}:pm", data)
     register_staff(user_id, name)
     write_evening_to_sheet(date, name, checkout_time, data["work_hours"], data["health_score"], data["completed_tasks"], data["shared"])
+    update_monthly_summary(date[:7])
 
 
 # ============================================================
