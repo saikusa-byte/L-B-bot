@@ -21,6 +21,7 @@ NANA_LINE_USER_ID = os.environ.get('NANA_LINE_USER_ID', '')
 
 JST = timezone(timedelta(hours=9))
 SPREADSHEET_ID = os.environ.get('GOOGLE_SPREADSHEET_ID', '')
+P1_SPREADSHEET_ID = os.environ.get('P1_SPREADSHEET_ID', '')
 
 ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。
 常に丁寧な日本語で、簡潔かつ的確に応答してください。
@@ -722,7 +723,7 @@ def write_p1_to_sheet(poster_name, p1_data):
     """P1事例をスプレッドシートの「P1事例集」タブに保存する"""
     try:
         creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
-        if not creds_json or not SPREADSHEET_ID:
+        if not creds_json or not P1_SPREADSHEET_ID:
             return False
         creds_dict = json.loads(creds_json)
         scopes = [
@@ -731,7 +732,7 @@ def write_p1_to_sheet(poster_name, p1_data):
         ]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+        spreadsheet = client.open_by_key(P1_SPREADSHEET_ID)
 
         try:
             p1_sheet = spreadsheet.worksheet("P1事例集")
