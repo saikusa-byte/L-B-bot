@@ -896,8 +896,42 @@ def callback():
             if '【日報】' in user_message:
                 report_data = parse_evening_report(user_message)
                 save_evening_report(user_id, name, report_data, timestamp)
-                reply_message(reply_token,
-                    f"✅ {name}さん、お疲れ様でした！\n日報を受け取りました。ゆっくり休んでくださいね🌙")
+
+                praise_angles = [
+                    "今日完了したタスクへの取り組み姿勢や丁寧さ",
+                    "体調管理・コンディションへの意識の高さ",
+                    "報告の誠実さや情報共有の姿勢",
+                    "仕事への粘り強さ・継続力",
+                    "チームへの貢献や周囲への気配り",
+                    "日々の積み重ねと成長",
+                    "プロとしての仕事への誠実な向き合い方",
+                ]
+                day_index = datetime.now(JST).day % len(praise_angles)
+                focus = praise_angles[day_index]
+
+                tasks = report_data.get("completed_tasks", [])
+                health = report_data.get("health_score", "")
+                checkout = report_data.get("checkout_time", "")
+                context = f"完了タスク：{', '.join(tasks)}\n体調：{health}点\n退社：{checkout}"
+
+                pm_prompt = (
+                    f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+                    f"{name}さんが日報を提出してくれました。\n"
+                    f"報告内容：{context}\n"
+                    f"今日特に注目して褒めるポイント：{focus}\n"
+                    f"お疲れ様の労いと、上記ポイントを中心に{name}さんの良いところを具体的に褒めてください。\n"
+                    f"2〜3文で。温かく前向きなトーンで。グループチャットへの返信なので簡潔に。"
+                )
+                fallbacks = [
+                    f"{name}さん、今日も一日お疲れ様でした！丁寧な日報をありがとうございます🌙",
+                    f"{name}さん、お疲れ様でした！今日の頑張りがきっと明日につながります✨",
+                    f"{name}さん、日報ありがとうございます。今日も誠実に仕事に向き合いましたね🌙",
+                    f"{name}さん、お疲れ様でした！毎日の積み重ねが力になっています💪",
+                    f"{name}さん、今日もありがとうございました。ゆっくり休んでください🌙",
+                ]
+                fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
+                pm_reply = gemini_generate(pm_prompt) or fallback
+                reply_message(reply_token, f"✅ {pm_reply}")
                 continue
 
             # その他のグループメッセージには返答しない
