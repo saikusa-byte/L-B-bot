@@ -855,17 +855,32 @@ def callback():
                 p1_data = parse_p1_report(user_message)
                 result = write_p1_to_sheet(name, p1_data)
                 if result is True:
+                    praise_angles = [
+                        "問題に真剣に向き合った誠実さと勇気",
+                        "失敗を隠さず共有してくれた誠実さ",
+                        "改善策まで考えて報告してくれた責任感",
+                        "チーム全体のために声を上げた勇気",
+                        "この報告が会社の財産になるという感謝",
+                        "困難を乗り越えようとするプロ意識",
+                        "正直な報告が信頼を生むという価値",
+                    ]
+                    day_index = datetime.now(JST).day % len(praise_angles)
+                    focus = praise_angles[day_index]
                     p1_prompt = (
                         f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
                         f"{name}さんが「{p1_data.get('summary','問題事例')}」というP1報告を提出してくれました。\n"
-                        f"問題や失敗を正直に報告し、改善策まで考えて共有することは、会社にとって非常に貴重な行動です。\n"
-                        f"以下の視点からメッセージを作成してください：\n"
-                        f"・報告してくれたことへの心からの感謝\n"
-                        f"・問題に向き合い、正直に共有する勇気を称える言葉\n"
-                        f"・この報告が会社全体の成長につながるという前向きな言葉\n"
-                        f"2〜3文で。温かく誠実なトーンで。毎回違う表現にしてください。"
+                        f"今日特に伝えたいこと：{focus}\n"
+                        f"報告への感謝と勇気を称える言葉を2〜3文で。温かく誠実なトーンで。"
                     )
-                    p1_reply = gemini_generate(p1_prompt) or f"{name}さん、貴重なご報告をありがとうございます。"
+                    fallbacks = [
+                        f"{name}さん、正直なご報告をありがとうございます。この勇気ある共有が会社を強くします。",
+                        f"{name}さん、貴重なP1報告に心から感謝します。問題に向き合う姿勢が素晴らしいです。",
+                        f"{name}さん、ありがとうございます。この報告が必ずチーム全体の学びになります。",
+                        f"{name}さん、正直に共有してくださり、本当にありがとうございます。",
+                        f"{name}さん、改善策まで考えてくださった誠実さに感謝します。",
+                    ]
+                    fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
+                    p1_reply = gemini_generate(p1_prompt) or fallback
                     reply_message(reply_token, f"📋 {p1_reply}")
                 else:
                     reply_message(reply_token, f"⚠️ P1保存エラー：{result}")
