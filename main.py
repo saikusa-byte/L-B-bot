@@ -750,23 +750,31 @@ def write_p1_to_sheet(poster_name, p1_data):
         except Exception:
             p1_sheet = spreadsheet.add_worksheet(title="P1報告内容", rows=200, cols=len(P1_HEADERS))
 
-        if not p1_sheet.row_values(1):
+        all_rows = p1_sheet.get_all_values()
+        if not all_rows:
             p1_sheet.append_row(P1_HEADERS)
+            all_rows = [P1_HEADERS]
 
         now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
+
+        def clean(val):
+            return val.replace('\n', ' ').strip() if val else ''
+
         row = [
             now_str,
             poster_name,
-            p1_data.get('date', ''),
-            p1_data.get('project', ''),
-            p1_data.get('summary', ''),
-            p1_data.get('content', ''),
-            p1_data.get('cause', ''),
-            p1_data.get('client', ''),
-            p1_data.get('partners', ''),
-            p1_data.get('internal', ''),
+            clean(p1_data.get('date', '')),
+            clean(p1_data.get('project', '')),
+            clean(p1_data.get('summary', '')),
+            clean(p1_data.get('content', '')),
+            clean(p1_data.get('cause', '')),
+            clean(p1_data.get('client', '')),
+            clean(p1_data.get('partners', '')),
+            clean(p1_data.get('internal', '')),
         ]
-        p1_sheet.append_row(row)
+        next_row = len(all_rows) + 1
+        col_end = chr(ord('A') + len(row) - 1)
+        p1_sheet.update(f'A{next_row}:{col_end}{next_row}', [row])
         return True
     except Exception as e:
         print("P1 sheet write error:", e)
