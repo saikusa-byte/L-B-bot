@@ -409,6 +409,7 @@ def save_morning_report(user_id, name, report_data, timestamp_ms):
     redis_set(f"att:{date}:{user_id}:am", data)
     register_staff(user_id, name)
     write_morning_to_sheet(date, name, data["check_in_time"], data["health_score"], data["tasks"])
+    check_health_streak(user_id, name, data["health_score"])
 
 
 def save_evening_report(user_id, name, report_data, timestamp_ms):
@@ -564,6 +565,54 @@ def build_evening_summary():
     return "\n".join(lines)
 
 
+def send_morning_greeting_to_groups():
+    """毎朝グループへエリザベスからの声掛けを送る"""
+    group_ids = redis_get("group_ids") or []
+    if not isinstance(group_ids, list):
+        return
+    date = today_jst()
+    weekdays = ['月', '火', '水', '木', '金', '土', '日']
+    weekday = weekdays[datetime.now(JST).weekday()]
+    prompt = (
+        f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+        f"今日は{date}（{weekday}曜日）です。\n"
+        f"スタッフ全員への朝の声掛けメッセージを作成してください。\n"
+        f"毎日違う内容で、元気が出る・仕事への意欲が湧く内容にしてください。\n"
+        f"L&Bは空間デザイン・建築・施工の会社です。\n"
+        f"3〜4文程度で、絵文字を1〜2個使って明るく。"
+    )
+    msg = gemini_generate(prompt)
+    if msg:
+        greeting = f"🌅 おはようございます！\n\n{msg}"
+        for gid in group_ids:
+            push_message(gid, greeting)
+
+
+def check_health_streak(user_id, name, health_score):
+    """体調10点が10日連続かチェックして褒める"""
+    if str(health_score) != '10':
+        return
+    JST_now = datetime.now(JST)
+    streak = 0
+    for i in range(10):
+        d = (JST_now - timedelta(days=i)).strftime("%Y-%m-%d")
+        am_data = redis_get(f"att:{d}:{user_id}:am")
+        if am_data and str(am_data.get("health_score", "")) == '10':
+            streak += 1
+        else:
+            break
+    if streak >= 10:
+        prompt = (
+            f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+            f"{name}さんが体調パフォーマンス10点を10日連続達成しました！\n"
+            f"プロとしての自己管理を称える、心から感動した特別な褒めメッセージを作成してください。\n"
+            f"具体的に「10日連続」という事実を盛り込み、4〜5文で。"
+        )
+        msg = gemini_generate(prompt)
+        if msg:
+            push_message(user_id, f"🏆 特別表彰！\n\n{msg}")
+
+
 def send_encouraging_messages():
     date = today_jst()
     staff_ids = redis_get("staff_ids") or []
@@ -575,22 +624,52 @@ def send_encouraging_messages():
         pm_data = redis_get(f"att:{date}:{uid}:pm")
         am_data = redis_get(f"att:{date}:{uid}:am")
 
+        if not pm_data and not am_data:
+            continue
+
+        # 報告内容の詳細を構築
         context = f"スタッフ名：{name}\n日付：{date}\n"
+        report_quality_notes = []
+
+        if am_data:
+            tasks = am_data.get("tasks", [])
+            health_am = am_data.get("health_score", "")
+            context += f"【朝の報告】\n体調：{health_am}点\n本日タスク：{', '.join(tasks)}\n"
+            if len(tasks) >= 3:
+                report_quality_notes.append("タスクが具体的に複数書かれている")
+            if len(tasks) < 2:
+                report_quality_notes.append("タスクの記載が少なめ")
+
         if pm_data:
             tasks = pm_data.get("completed_tasks", [])
             work_hours = pm_data.get("work_hours", "")
-            health = pm_data.get("health_score", "")
-            context += f"体調：{health}点\n勤務時間：{work_hours}\n完了タスク：{', '.join(tasks[:3])}\n"
+            health_pm = pm_data.get("health_score", "")
+            shared = pm_data.get("shared", "")
+            context += f"【日報】\n体調：{health_pm}点\n勤務時間：{work_hours}\n完了タスク：{', '.join(tasks)}\n共有事項：{shared}\n"
+            if len(tasks) >= 3:
+                report_quality_notes.append("完了タスクが具体的に書かれている")
+            if shared and len(shared) > 10:
+                report_quality_notes.append("共有事項もしっかり記載されている")
+            if not shared:
+                report_quality_notes.append("共有事項の記載がない")
         elif am_data:
-            context += "本日は日報の提出がありませんでした。\n"
-        else:
-            context += "本日は報告がありませんでした（欠勤または休日の可能性あり）。\n"
+            context += "※本日は日報の提出がありませんでした。\n"
+            report_quality_notes.append("日報の提出がなかった")
+
+        quality_str = "・".join(report_quality_notes) if report_quality_notes else ""
 
         prompt = (
             f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
-            f"以下の情報をもとに、{name}さんへの短い応援・労いメッセージを日本語で作成してください。\n"
-            f"温かく、具体的で、明日への意欲が湧くような内容にしてください。3〜4文程度で。\n\n"
-            f"{context}"
+            f"社長（七種珠水）の気持ちと言葉を代弁して、{name}さんへ個別メッセージを送ります。\n"
+            f"社長はデザインと本質を大切にし、スタッフの成長を心から願っています。\n"
+            f"社長からの温かい言葉として、前向きで具体的なメッセージを作成してください。\n\n"
+            f"以下の報告内容を踏まえて：\n{context}\n"
+            f"報告の特徴：{quality_str}\n\n"
+            f"【メッセージの構成】\n"
+            f"①今日の仕事への労い（具体的な内容に触れる）\n"
+            f"②報告内容へのフィードバック（良い点は褒める・改善点は前向きに優しく）\n"
+            f"③社長らしい一言を添えた明日への励まし\n\n"
+            f"全体で5〜6文。温かく前向きなトーンで。末尾に「社長より」と添えてください。"
         )
 
         msg = gemini_generate(prompt)
@@ -609,7 +688,8 @@ def health_check():
 
 @app.route("/morning_summary", methods=['GET', 'POST'])
 def morning_summary():
-    """外部cronから朝9時に呼び出す"""
+    """外部cronから朝9時15分に呼び出す"""
+    send_morning_greeting_to_groups()
     summary = build_morning_summary()
     if NANA_LINE_USER_ID:
         push_message(NANA_LINE_USER_ID, summary)
@@ -656,6 +736,14 @@ def callback():
         # グループチャット：勤怠報告の処理
         # ====================================================
         if source_type in ('group', 'room') and group_id:
+            # グループIDを保存
+            group_ids = redis_get("group_ids") or []
+            if not isinstance(group_ids, list):
+                group_ids = []
+            if group_id not in group_ids:
+                group_ids.append(group_id)
+                redis_set("group_ids", group_ids)
+
             name = redis_get(f"staff:{user_id}:name")
             if not name:
                 name = get_line_profile_name(user_id, group_id)
