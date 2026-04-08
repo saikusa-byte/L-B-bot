@@ -707,14 +707,14 @@ def parse_p1_report(text):
         return m.group(1).strip() if m else ''
 
     result = {
-        'date':     extract(r'①日時[：:]\s*(.+?)(?:\n②|\Z)', text),
-        'project':  extract(r'②案件名[：:]\s*(.+?)(?:\n③|\Z)', text),
-        'summary':  extract(r'③概要[：:]\s*(.+?)(?:\n④|\Z)', text),
-        'content':  extract(r'④内容[：:]\s*(.*?)(?:\n⑤|\Z)', text),
-        'cause':    extract(r'⑤原因[：:]\s*(.*?)(?:\n⑥|\Z)', text),
-        'client':   extract(r'⑥クライアント対応策[：:]\s*(.*?)(?:\n⑦|\Z)', text),
-        'partners': extract(r'⑦関係者対応策[：:]\s*(.*?)(?:\n⑧|\Z)', text),
-        'internal': extract(r'⑧社内改善策[：:]\s*(.*?)$', text),
+        'date':     extract(r'①日時\s*[：:]\s*(.+?)(?:\n②|\Z)', text),
+        'project':  extract(r'②案件名\s*[：:]\s*(.+?)(?:\n③|\Z)', text),
+        'summary':  extract(r'③概要\s*[：:]\s*(.+?)(?:\n④|\Z)', text),
+        'content':  extract(r'④内容\s*[：:]\s*(.*?)(?:\n⑤|\Z)', text),
+        'cause':    extract(r'⑤原因\s*[：:]\s*(.*?)(?:\n⑥|\Z)', text),
+        'client':   extract(r'⑥クライアント対応策\s*[：:]\s*(.*?)(?:\n⑦|\Z)', text),
+        'partners': extract(r'⑦関係者対応策\s*[：:]\s*(.*?)(?:\n⑧|\Z)', text),
+        'internal': extract(r'⑧社内改善策\s*[：:]\s*(.*?)$', text),
     }
     return result
 
