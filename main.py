@@ -759,7 +759,7 @@ def write_p1_to_sheet(poster_name, p1_data):
         return True
     except Exception as e:
         print("P1 sheet write error:", e)
-        return False
+        return str(e)
 
 
 # ============================================================
@@ -836,15 +836,15 @@ def callback():
 
             if '①日時' in user_message and '②案件名' in user_message:
                 p1_data = parse_p1_report(user_message)
-                success = write_p1_to_sheet(name, p1_data)
-                if success:
+                result = write_p1_to_sheet(name, p1_data)
+                if result is True:
                     reply_message(reply_token,
                         f"📋 {name}さん、P1事例を記録しました。\n"
                         f"案件：{p1_data.get('project','')}\n"
                         f"概要：{p1_data.get('summary','')}\n\n"
                         f"スプレッドシートの「P1事例集」タブに保存されています。")
                 else:
-                    reply_message(reply_token, "⚠️ P1事例の保存中にエラーが発生しました。")
+                    reply_message(reply_token, f"⚠️ P1保存エラー：{result}")
                 continue
 
             if '【本日の業務】' in user_message:
