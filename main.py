@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 
@@ -14,6 +15,9 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ['LINE_CHANNEL_ACCESS_TOKEN']
 GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
 UPSTASH_REDIS_REST_URL = os.environ['UPSTASH_REDIS_REST_URL']
 UPSTASH_REDIS_REST_TOKEN = os.environ['UPSTASH_REDIS_REST_TOKEN']
+NANA_LINE_USER_ID = os.environ.get('NANA_LINE_USER_ID', '')
+
+JST = timezone(timedelta(hours=9))
 
 ELIZABETH_PROMPT = """あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。
 常に丁寧な日本語で、簡潔かつ的確に応答してください。
@@ -52,48 +56,219 @@ L&Bを世界トップレベルのデザイン会社にする。売上100億円�
 予定の削除を求められた場合は[[DELETE_SCHEDULE:番号]]を含めてください（番号は1始まり）。"""
 
 
-def redis_get(user_id):
-    key = "conv:" + user_id
+# ============================================================
+# Redis ヘルパー
+# ============================================================
+
+def redis_cmd(*args):
     headers = {"Authorization": "Bearer " + UPSTASH_REDIS_REST_TOKEN}
     try:
-        resp = requests.post(UPSTASH_REDIS_REST_URL, headers=headers, json=["GET", key])
-        result = resp.json().get("result")
-        if result:
+        resp = requests.post(UPSTASH_REDIS_REST_URL, headers=headers, json=list(args))
+        return resp.json().get("result")
+    except Exception:
+        return None
+
+
+def redis_get(key):
+    result = redis_cmd("GET", key)
+    if result:
+        try:
             return json.loads(result)
-    except Exception:
-        pass
-    return []
+        except Exception:
+            return result
+    return None
 
 
-def redis_set(user_id, history):
-    key = "conv:" + user_id
-    headers = {"Authorization": "Bearer " + UPSTASH_REDIS_REST_TOKEN}
-    try:
-        requests.post(UPSTASH_REDIS_REST_URL, headers=headers, json=["SET", key, json.dumps(history, ensure_ascii=False)])
-    except Exception:
-        pass
+def redis_set(key, value):
+    if isinstance(value, (dict, list)):
+        value = json.dumps(value, ensure_ascii=False)
+    redis_cmd("SET", key, str(value))
+
+
+def redis_get_conv(user_id):
+    result = redis_get("conv:" + user_id)
+    return result if isinstance(result, list) else []
+
+
+def redis_set_conv(user_id, history):
+    redis_cmd("SET", "conv:" + user_id, json.dumps(history, ensure_ascii=False))
 
 
 def redis_get_schedules(user_id):
-    key = "schedule:" + user_id
-    headers = {"Authorization": "Bearer " + UPSTASH_REDIS_REST_TOKEN}
-    try:
-        resp = requests.post(UPSTASH_REDIS_REST_URL, headers=headers, json=["GET", key])
-        result = resp.json().get("result")
-        if result:
-            return json.loads(result)
-    except Exception:
-        pass
-    return []
+    result = redis_get("schedule:" + user_id)
+    return result if isinstance(result, list) else []
 
 
 def redis_set_schedules(user_id, schedules):
-    key = "schedule:" + user_id
-    headers = {"Authorization": "Bearer " + UPSTASH_REDIS_REST_TOKEN}
+    redis_cmd("SET", "schedule:" + user_id, json.dumps(schedules, ensure_ascii=False))
+
+
+# ============================================================
+# LINE API ヘルパー
+# ============================================================
+
+def get_line_profile_name(user_id, group_id=None):
+    if group_id:
+        url = f"https://api.line.me/v2/bot/group/{group_id}/member/{user_id}"
+    else:
+        url = f"https://api.line.me/v2/bot/profile/{user_id}"
+    headers = {"Authorization": "Bearer " + LINE_CHANNEL_ACCESS_TOKEN}
     try:
-        requests.post(UPSTASH_REDIS_REST_URL, headers=headers, json=["SET", key, json.dumps(schedules, ensure_ascii=False)])
+        resp = requests.get(url, headers=headers)
+        return resp.json().get("displayName", "スタッフ")
     except Exception:
-        pass
+        return "スタッフ"
+
+
+def reply_message(reply_token, text):
+    url = "https://api.line.me/v2/bot/message/reply"
+    headers = {
+        "Authorization": "Bearer " + LINE_CHANNEL_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "replyToken": reply_token,
+        "messages": [{"type": "text", "text": text}]
+    }
+    requests.post(url, headers=headers, json=data)
+
+
+def push_message(to_id, text):
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Authorization": "Bearer " + LINE_CHANNEL_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "to": to_id,
+        "messages": [{"type": "text", "text": text}]
+    }
+    requests.post(url, headers=headers, json=data)
+
+
+# ============================================================
+# 勤怠ヘルパー
+# ============================================================
+
+def today_jst():
+    return datetime.now(JST).strftime("%Y-%m-%d")
+
+
+def register_staff(user_id, name):
+    redis_set(f"staff:{user_id}:name", name)
+    staff_ids = redis_get("staff_ids") or []
+    if not isinstance(staff_ids, list):
+        staff_ids = []
+    if user_id not in staff_ids:
+        staff_ids.append(user_id)
+        redis_set("staff_ids", staff_ids)
+
+
+def parse_morning_report(text):
+    result = {"raw": text}
+    m = re.search(r'体調[管理]*\n(\d+)点', text)
+    if m:
+        result["health_score"] = m.group(1)
+    m2 = re.search(r'タスク[（(][^)）]*[)）]\n(.*?)(?:\n[①-⑩]|\Z)', text, re.DOTALL)
+    if m2:
+        tasks = [t.strip() for t in m2.group(1).strip().split('\n') if t.strip()]
+        result["tasks"] = tasks
+    m3 = re.search(r'③共有事項\n?(.*?)$', text, re.DOTALL)
+    if m3:
+        result["shared"] = m3.group(1).strip()
+    return result
+
+
+def parse_evening_report(text):
+    result = {"raw": text}
+    m = re.search(r'体調[パフォーマンス]*点\n(\d+)点', text)
+    if m:
+        result["health_score"] = m.group(1)
+    m2 = re.search(r'退出時間[：:]\s*(\d+)[：:](\d+)', text)
+    if m2:
+        result["checkout_time"] = f"{m2.group(1)}:{m2.group(2)}"
+    m3 = re.search(r'完了タスク[^)\n]*\n(.*?)(?:\n[④-⑩]|\Z)', text, re.DOTALL)
+    if m3:
+        tasks = [t.strip().lstrip('・') for t in m3.group(1).strip().split('\n') if t.strip()]
+        result["completed_tasks"] = tasks
+    return result
+
+
+def save_morning_report(user_id, name, report_data, timestamp_ms):
+    date = today_jst()
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=JST)
+    data = {
+        "user_id": user_id,
+        "name": name,
+        "date": date,
+        "check_in_time": dt.strftime("%H:%M"),
+        "health_score": report_data.get("health_score", "?"),
+        "tasks": report_data.get("tasks", []),
+        "shared": report_data.get("shared", ""),
+    }
+    redis_set(f"att:{date}:{user_id}:am", data)
+    register_staff(user_id, name)
+
+
+def save_evening_report(user_id, name, report_data, timestamp_ms):
+    date = today_jst()
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=JST)
+    checkout_time = report_data.get("checkout_time") or dt.strftime("%H:%M")
+
+    work_hours = None
+    am_data = redis_get(f"att:{date}:{user_id}:am")
+    if am_data and am_data.get("check_in_time"):
+        try:
+            checkin_dt = datetime.strptime(f"{date} {am_data['check_in_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+            checkout_dt = datetime.strptime(f"{date} {checkout_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+            diff = checkout_dt - checkin_dt
+            if diff.total_seconds() > 0:
+                h = int(diff.total_seconds() // 3600)
+                m = int((diff.total_seconds() % 3600) // 60)
+                work_hours = f"{h}時間{m}分"
+        except Exception:
+            pass
+
+    data = {
+        "user_id": user_id,
+        "name": name,
+        "date": date,
+        "report_time": dt.strftime("%H:%M"),
+        "checkout_time": checkout_time,
+        "health_score": report_data.get("health_score", "?"),
+        "completed_tasks": report_data.get("completed_tasks", []),
+        "shared": report_data.get("shared", ""),
+        "work_hours": work_hours or "計算不可",
+    }
+    redis_set(f"att:{date}:{user_id}:pm", data)
+    register_staff(user_id, name)
+
+
+# ============================================================
+# Gemini ヘルパー
+# ============================================================
+
+def gemini_generate(prompt_text):
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+    data = {"contents": [{"parts": [{"text": prompt_text}]}]}
+    try:
+        resp = requests.post(url, json=data)
+        return resp.json()['candidates'][0]['content']['parts'][0]['text']
+    except Exception:
+        return None
+
+
+def gemini_chat(history):
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+    data = {
+        "system_instruction": {"parts": [{"text": ELIZABETH_PROMPT}]},
+        "contents": history
+    }
+    try:
+        resp = requests.post(url, json=data)
+        return resp.json()
+    except Exception:
+        return {}
 
 
 def format_schedules(schedules):
@@ -106,9 +281,146 @@ def format_schedules(schedules):
     return "\n".join(lines)
 
 
+# ============================================================
+# サマリー・応援メッセージ
+# ============================================================
+
+def build_morning_summary():
+    date = today_jst()
+    staff_ids = redis_get("staff_ids") or []
+    if not isinstance(staff_ids, list):
+        staff_ids = []
+
+    reported = []
+    not_reported = []
+
+    for uid in staff_ids:
+        name = redis_get(f"staff:{uid}:name") or "スタッフ"
+        am_data = redis_get(f"att:{date}:{uid}:am")
+        if am_data:
+            health = am_data.get("health_score", "?")
+            tasks = am_data.get("tasks", [])
+            task_lines = "\n    ".join(tasks[:4]) if tasks else "（記載なし）"
+            reported.append(f"✅ {name}（体調{health}点）\n    {task_lines}")
+        else:
+            not_reported.append(f"⚠️ {name}")
+
+    lines = [f"🌅 おはようございます、ナナさん。\n{date} 朝の報告まとめです。\n"]
+    if reported:
+        lines.append("【報告済み】")
+        lines.extend(reported)
+    if not_reported:
+        lines.append("\n【未報告】")
+        lines.extend(not_reported)
+    if not staff_ids:
+        lines.append("まだスタッフの報告が届いていません。")
+
+    return "\n".join(lines)
+
+
+def build_evening_summary():
+    date = today_jst()
+    staff_ids = redis_get("staff_ids") or []
+    if not isinstance(staff_ids, list):
+        staff_ids = []
+
+    reported_pm = []
+    not_reported = []
+
+    for uid in staff_ids:
+        name = redis_get(f"staff:{uid}:name") or "スタッフ"
+        am_data = redis_get(f"att:{date}:{uid}:am")
+        pm_data = redis_get(f"att:{date}:{uid}:pm")
+
+        if pm_data:
+            health = pm_data.get("health_score", "?")
+            work_hours = pm_data.get("work_hours", "不明")
+            checkout = pm_data.get("checkout_time", "不明")
+            tasks = pm_data.get("completed_tasks", [])
+            task_lines = "・" + "\n  ・".join(tasks[:4]) if tasks else "（記載なし）"
+            reported_pm.append(
+                f"✅ {name}\n"
+                f"  体調：{health}点 | 勤務：{work_hours} | 退出：{checkout}\n"
+                f"  完了タスク：\n  {task_lines}"
+            )
+        elif am_data:
+            not_reported.append(f"⚠️ {name}（朝は報告あり・日報なし）")
+        else:
+            not_reported.append(f"❌ {name}（終日未報告）")
+
+    lines = [f"🌙 お疲れ様です、ナナさん。\n{date} 夜の報告まとめです。\n"]
+    if reported_pm:
+        lines.append("【日報済み】")
+        lines.extend(reported_pm)
+    if not_reported:
+        lines.append("\n【未報告・欠勤】")
+        lines.extend(not_reported)
+    if not staff_ids:
+        lines.append("本日のスタッフ報告はありませんでした。")
+
+    return "\n".join(lines)
+
+
+def send_encouraging_messages():
+    date = today_jst()
+    staff_ids = redis_get("staff_ids") or []
+    if not isinstance(staff_ids, list):
+        staff_ids = []
+
+    for uid in staff_ids:
+        name = redis_get(f"staff:{uid}:name") or "スタッフ"
+        pm_data = redis_get(f"att:{date}:{uid}:pm")
+        am_data = redis_get(f"att:{date}:{uid}:am")
+
+        context = f"スタッフ名：{name}\n日付：{date}\n"
+        if pm_data:
+            tasks = pm_data.get("completed_tasks", [])
+            work_hours = pm_data.get("work_hours", "")
+            health = pm_data.get("health_score", "")
+            context += f"体調：{health}点\n勤務時間：{work_hours}\n完了タスク：{', '.join(tasks[:3])}\n"
+        elif am_data:
+            context += "本日は日報の提出がありませんでした。\n"
+        else:
+            context += "本日は報告がありませんでした（欠勤または休日の可能性あり）。\n"
+
+        prompt = (
+            f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+            f"以下の情報をもとに、{name}さんへの短い応援・労いメッセージを日本語で作成してください。\n"
+            f"温かく、具体的で、明日への意欲が湧くような内容にしてください。3〜4文程度で。\n\n"
+            f"{context}"
+        )
+
+        msg = gemini_generate(prompt)
+        if msg:
+            push_message(uid, f"💌 エリザベスより\n\n{msg}")
+
+
+# ============================================================
+# エンドポイント
+# ============================================================
+
 @app.route("/", methods=['GET'])
 def health_check():
     return 'OK'
+
+
+@app.route("/morning_summary", methods=['GET', 'POST'])
+def morning_summary():
+    """外部cronから朝9時に呼び出す"""
+    summary = build_morning_summary()
+    if NANA_LINE_USER_ID:
+        push_message(NANA_LINE_USER_ID, summary)
+    return summary
+
+
+@app.route("/evening_summary", methods=['GET', 'POST'])
+def evening_summary():
+    """外部cronから夜9時に呼び出す"""
+    summary = build_evening_summary()
+    if NANA_LINE_USER_ID:
+        push_message(NANA_LINE_USER_ID, summary)
+    send_encouraging_messages()
+    return summary
 
 
 @app.route("/callback", methods=['POST'])
@@ -127,98 +439,111 @@ def callback():
 
     data = json.loads(body)
     for event in data.get('events', []):
-        if event['type'] == 'message' and event['message']['type'] == 'text':
-            user_message = event['message']['text']
-            reply_token = event['replyToken']
-            user_id = event['source']['userId']
+        if event['type'] != 'message' or event['message']['type'] != 'text':
+            continue
 
-            history = redis_get(user_id)
+        user_message = event['message']['text']
+        reply_token = event['replyToken']
+        user_id = event['source']['userId']
+        source_type = event['source'].get('type', 'user')
+        group_id = event['source'].get('groupId') or event['source'].get('roomId')
+        timestamp = event.get('timestamp', 0)
 
-            history.append({
-                "role": "user",
-                "parts": [{"text": user_message}]
-            })
+        # ====================================================
+        # グループチャット：勤怠報告の処理
+        # ====================================================
+        if source_type in ('group', 'room') and group_id:
+            name = redis_get(f"staff:{user_id}:name")
+            if not name:
+                name = get_line_profile_name(user_id, group_id)
+                redis_set(f"staff:{user_id}:name", name)
 
-            if len(history) > 20:
-                history = history[-20:]
+            if '【本日の業務】' in user_message:
+                report_data = parse_morning_report(user_message)
+                save_morning_report(user_id, name, report_data, timestamp)
+                reply_message(reply_token,
+                    f"✅ {name}さん、朝のご報告ありがとうございます！\n今日も一日頑張りましょう💪")
+                continue
 
-            base_url = "https://generativelanguage.googleapis.com"
-            model_path = "/v1beta/models/gemini-2.5-flash:generateContent"
-            gemini_url = base_url + model_path + "?key=" + GEMINI_API_KEY
+            if '【日報】' in user_message:
+                report_data = parse_evening_report(user_message)
+                save_evening_report(user_id, name, report_data, timestamp)
+                reply_message(reply_token,
+                    f"✅ {name}さん、お疲れ様でした！\n日報を受け取りました。ゆっくり休んでくださいね🌙")
+                continue
 
-            gemini_data = {
-                "system_instruction": {
-                    "parts": [{"text": ELIZABETH_PROMPT}]
-                },
-                "contents": history
-            }
+            # その他のグループメッセージには返答しない
+            continue
 
-            try:
-                gemini_response = requests.post(gemini_url, json=gemini_data)
-                gemini_json = gemini_response.json()
-                if 'candidates' not in gemini_json:
-                    reply_text = "エラー: " + str(gemini_json.get('error', {}).get('message', str(gemini_json)))
+        # ====================================================
+        # 1対1チャット：ナナさんとの会話
+        # ====================================================
+
+        # LINE User IDを返すコマンド
+        if 'ID' in user_message and ('教えて' in user_message or '登録' in user_message):
+            reply_message(reply_token,
+                f"あなたのLINE User IDは以下です：\n\n{user_id}\n\nこれをRenderの環境変数 NANA_LINE_USER_ID に設定してください。")
+            continue
+
+        # 勤怠サマリーをナナさんが手動で確認するコマンド
+        if '今日の報告' in user_message or '勤怠確認' in user_message:
+            summary = build_morning_summary() + "\n\n" + build_evening_summary()
+            reply_message(reply_token, summary)
+            continue
+
+        # 通常の会話（スケジュール管理含む）
+        history = redis_get_conv(user_id)
+        history.append({"role": "user", "parts": [{"text": user_message}]})
+        if len(history) > 20:
+            history = history[-20:]
+
+        try:
+            gemini_json = gemini_chat(history)
+            if 'candidates' not in gemini_json:
+                reply_text = "エラー: " + str(gemini_json.get('error', {}).get('message', str(gemini_json)))
+            else:
+                raw_text = gemini_json['candidates'][0]['content']['parts'][0]['text']
+                schedules = redis_get_schedules(user_id)
+
+                schedule_matches = re.findall(r'\[\[SCHEDULE:(\{.*?\})\]\]', raw_text)
+                for match in schedule_matches:
+                    try:
+                        entry = json.loads(match)
+                        schedules.append(entry)
+                    except Exception:
+                        pass
+                if schedule_matches:
+                    redis_set_schedules(user_id, schedules)
+
+                show_schedule = '[[SHOW_SCHEDULE]]' in raw_text
+
+                delete_matches = re.findall(r'\[\[DELETE_SCHEDULE:(\d+)\]\]', raw_text)
+                for num in delete_matches:
+                    idx = int(num) - 1
+                    if 0 <= idx < len(schedules):
+                        schedules.pop(idx)
+                if delete_matches:
+                    redis_set_schedules(user_id, schedules)
+
+                clean_text = re.sub(r'\[\[SCHEDULE:\{.*?\}\]\]', '', raw_text)
+                clean_text = clean_text.replace('[[SHOW_SCHEDULE]]', '')
+                clean_text = re.sub(r'\[\[DELETE_SCHEDULE:\d+\]\]', '', clean_text)
+                clean_text = clean_text.strip()
+
+                if show_schedule:
+                    reply_text = format_schedules(schedules)
+                elif schedule_matches:
+                    reply_text = clean_text + "\n\n✅ 予定を登録しました。"
                 else:
-                    raw_text = gemini_json['candidates'][0]['content']['parts'][0]['text']
+                    reply_text = clean_text
 
-                    schedules = redis_get_schedules(user_id)
+                history.append({"role": "model", "parts": [{"text": raw_text}]})
+                redis_set_conv(user_id, history)
 
-                    # スケジュール追加の検出
-                    schedule_matches = re.findall(r'\[\[SCHEDULE:(\{.*?\})\]\]', raw_text)
-                    for match in schedule_matches:
-                        try:
-                            entry = json.loads(match)
-                            schedules.append(entry)
-                        except Exception:
-                            pass
-                    if schedule_matches:
-                        redis_set_schedules(user_id, schedules)
+        except Exception as e:
+            reply_text = "例外エラー: " + str(e)
 
-                    # スケジュール表示の検出
-                    show_schedule = '[[SHOW_SCHEDULE]]' in raw_text
-
-                    # スケジュール削除の検出
-                    delete_matches = re.findall(r'\[\[DELETE_SCHEDULE:(\d+)\]\]', raw_text)
-                    for num in delete_matches:
-                        idx = int(num) - 1
-                        if 0 <= idx < len(schedules):
-                            schedules.pop(idx)
-                    if delete_matches:
-                        redis_set_schedules(user_id, schedules)
-
-                    # 特殊タグを返答から除去
-                    clean_text = re.sub(r'\[\[SCHEDULE:\{.*?\}\]\]', '', raw_text)
-                    clean_text = clean_text.replace('[[SHOW_SCHEDULE]]', '')
-                    clean_text = re.sub(r'\[\[DELETE_SCHEDULE:\d+\]\]', '', clean_text)
-                    clean_text = clean_text.strip()
-
-                    if show_schedule:
-                        reply_text = format_schedules(schedules)
-                    elif schedule_matches:
-                        reply_text = clean_text + "\n\n✅ 予定を登録しました。"
-                    else:
-                        reply_text = clean_text
-
-                    history.append({
-                        "role": "model",
-                        "parts": [{"text": raw_text}]
-                    })
-                    redis_set(user_id, history)
-
-            except Exception as e:
-                print("Exception:", str(e))
-                reply_text = "例外エラー: " + str(e)
-
-            line_url = "https://api.line.me/v2/bot/message/reply"
-            headers = {
-                "Authorization": "Bearer " + LINE_CHANNEL_ACCESS_TOKEN,
-                "Content-Type": "application/json"
-            }
-            line_data = {
-                "replyToken": reply_token,
-                "messages": [{"type": "text", "text": reply_text}]
-            }
-            requests.post(line_url, headers=headers, json=line_data)
+        reply_message(reply_token, reply_text)
 
     return 'OK'
 
