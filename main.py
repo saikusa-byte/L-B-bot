@@ -693,6 +693,75 @@ def send_encouraging_messages():
 
 
 # ============================================================
+# P1事例集
+# ============================================================
+
+P1_HEADERS = ['記録日時', '投稿者', '①日時', '②案件名', '③概要', '④内容', '⑤原因', '⑥クライアント対応策', '⑦関係者対応策', '⑧社内改善策']
+
+
+def parse_p1_report(text):
+    """①〜⑧フォーマットのP1事例を解析する"""
+    def extract(pattern, src):
+        m = re.search(pattern, src, re.DOTALL)
+        return m.group(1).strip() if m else ''
+
+    result = {
+        'date':     extract(r'①日時[：:]\s*(.+?)(?:\n②|\Z)', text),
+        'project':  extract(r'②案件名[：:]\s*(.+?)(?:\n③|\Z)', text),
+        'summary':  extract(r'③概要[：:]\s*(.+?)(?:\n④|\Z)', text),
+        'content':  extract(r'④内容[：:]\s*(.*?)(?:\n⑤|\Z)', text),
+        'cause':    extract(r'⑤原因[：:]\s*(.*?)(?:\n⑥|\Z)', text),
+        'client':   extract(r'⑥クライアント対応策[：:]\s*(.*?)(?:\n⑦|\Z)', text),
+        'partners': extract(r'⑦関係者対応策[：:]\s*(.*?)(?:\n⑧|\Z)', text),
+        'internal': extract(r'⑧社内改善策[：:]\s*(.*?)$', text),
+    }
+    return result
+
+
+def write_p1_to_sheet(poster_name, p1_data):
+    """P1事例をスプレッドシートの「P1事例集」タブに保存する"""
+    try:
+        creds_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+        if not creds_json or not SPREADSHEET_ID:
+            return False
+        creds_dict = json.loads(creds_json)
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(SPREADSHEET_ID)
+
+        try:
+            p1_sheet = spreadsheet.worksheet("P1事例集")
+        except Exception:
+            p1_sheet = spreadsheet.add_worksheet(title="P1事例集", rows=200, cols=len(P1_HEADERS))
+
+        if not p1_sheet.row_values(1):
+            p1_sheet.append_row(P1_HEADERS)
+
+        now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
+        row = [
+            now_str,
+            poster_name,
+            p1_data.get('date', ''),
+            p1_data.get('project', ''),
+            p1_data.get('summary', ''),
+            p1_data.get('content', ''),
+            p1_data.get('cause', ''),
+            p1_data.get('client', ''),
+            p1_data.get('partners', ''),
+            p1_data.get('internal', ''),
+        ]
+        p1_sheet.append_row(row)
+        return True
+    except Exception as e:
+        print("P1 sheet write error:", e)
+        return False
+
+
+# ============================================================
 # エンドポイント
 # ============================================================
 
@@ -763,6 +832,19 @@ def callback():
             if not name:
                 name = get_line_profile_name(user_id, group_id)
                 redis_set(f"staff:{user_id}:name", name)
+
+            if '①日時' in user_message and '②案件名' in user_message:
+                p1_data = parse_p1_report(user_message)
+                success = write_p1_to_sheet(name, p1_data)
+                if success:
+                    reply_message(reply_token,
+                        f"📋 {name}さん、P1事例を記録しました。\n"
+                        f"案件：{p1_data.get('project','')}\n"
+                        f"概要：{p1_data.get('summary','')}\n\n"
+                        f"スプレッドシートの「P1事例集」タブに保存されています。")
+                else:
+                    reply_message(reply_token, "⚠️ P1事例の保存中にエラーが発生しました。")
+                continue
 
             if '【本日の業務】' in user_message:
                 report_data = parse_morning_report(user_message)
