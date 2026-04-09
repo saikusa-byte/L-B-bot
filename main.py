@@ -979,12 +979,39 @@ def callback():
                 name = get_line_profile_name(user_id, group_id)
                 redis_set(f"staff:{user_id}:name", name)
 
-            if '①日時' in user_message and '②案件名' in user_message:
+            is_structured_p1 = '①日時' in user_message and '②案件名' in user_message
+            is_freeform_p1 = re.search(r'【.{1,30}(報告|トラブル|問題|不具合|クレーム|遅延|事故)】', user_message)
+
+            if is_structured_p1 or is_freeform_p1:
                 # まず即座に受信確認を返信（タイムアウト防止）
-                reply_message(reply_token, f"📋 {name}さん、P1報告を受け取りました。記録中です...")
+                reply_message(reply_token, f"📋 {name}さん、報告を受け取りました。記録中です...")
+
+                # 構造化 or 自由形式でパース
+                if is_structured_p1:
+                    p1_data = parse_p1_report(user_message)
+                else:
+                    # 自由形式：Geminiで構造化
+                    parse_prompt = (
+                        f"以下の報告メッセージを読んで、JSON形式で情報を抽出してください。\n"
+                        f"キー：date（日付）, project（案件名）, summary（概要1行）, content（内容詳細）, cause（原因）, client（クライアント対応）, partners（関係者対応）, internal（社内対応）\n"
+                        f"不明な項目は空文字にしてください。必ずJSONのみ返してください。\n\n"
+                        f"報告：\n{user_message}"
+                    )
+                    parsed_json = gemini_generate(parse_prompt) or '{}'
+                    try:
+                        parsed_json = re.sub(r'```(?:json)?\n?', '', parsed_json).strip('`').strip()
+                        p1_data = json.loads(parsed_json)
+                    except Exception:
+                        p1_data = {
+                            'date': today_jst(),
+                            'project': re.search(r'【(.+?)】', user_message).group(1) if re.search(r'【(.+?)】', user_message) else '',
+                            'summary': user_message[:50],
+                            'content': user_message,
+                            'cause': '', 'client': '', 'partners': '', 'internal': ''
+                        }
 
                 # スプレッドシート書き込み
-                result = write_p1_to_sheet(name, p1_data := parse_p1_report(user_message))
+                result = write_p1_to_sheet(name, p1_data)
                 write_p1_action_items(p1_data, name)
 
                 # Geminiで感謝メッセージを生成してpushで送信
