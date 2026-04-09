@@ -980,39 +980,42 @@ def callback():
                 redis_set(f"staff:{user_id}:name", name)
 
             if '①日時' in user_message and '②案件名' in user_message:
-                p1_data = parse_p1_report(user_message)
-                result = write_p1_to_sheet(name, p1_data)
+                # まず即座に受信確認を返信（タイムアウト防止）
+                reply_message(reply_token, f"📋 {name}さん、P1報告を受け取りました。記録中です...")
+
+                # スプレッドシート書き込み
+                result = write_p1_to_sheet(name, p1_data := parse_p1_report(user_message))
                 write_p1_action_items(p1_data, name)
-                if result is True:
-                    praise_angles = [
-                        "問題に真剣に向き合った誠実さと勇気",
-                        "失敗を隠さず共有してくれた誠実さ",
-                        "改善策まで考えて報告してくれた責任感",
-                        "チーム全体のために声を上げた勇気",
-                        "この報告が会社の財産になるという感謝",
-                        "困難を乗り越えようとするプロ意識",
-                        "正直な報告が信頼を生むという価値",
-                    ]
-                    day_index = datetime.now(JST).day % len(praise_angles)
-                    focus = praise_angles[day_index]
-                    p1_prompt = (
-                        f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
-                        f"{name}さんが「{p1_data.get('summary','問題事例')}」というP1報告を提出してくれました。\n"
-                        f"今日特に伝えたいこと：{focus}\n"
-                        f"報告への感謝と勇気を称える言葉を2〜3文で。温かく誠実なトーンで。"
-                    )
-                    fallbacks = [
-                        f"{name}さん、正直なご報告をありがとうございます。この勇気ある共有が会社を強くします。",
-                        f"{name}さん、貴重なP1報告に心から感謝します。問題に向き合う姿勢が素晴らしいです。",
-                        f"{name}さん、ありがとうございます。この報告が必ずチーム全体の学びになります。",
-                        f"{name}さん、正直に共有してくださり、本当にありがとうございます。",
-                        f"{name}さん、改善策まで考えてくださった誠実さに感謝します。",
-                    ]
-                    fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
-                    p1_reply = gemini_generate(p1_prompt) or fallback
-                    reply_message(reply_token, f"📋 {p1_reply}")
-                else:
-                    reply_message(reply_token, f"⚠️ P1保存エラー：{result}")
+
+                # Geminiで感謝メッセージを生成してpushで送信
+                praise_angles = [
+                    "問題に真剣に向き合った誠実さと勇気",
+                    "失敗を隠さず共有してくれた誠実さ",
+                    "改善策まで考えて報告してくれた責任感",
+                    "チーム全体のために声を上げた勇気",
+                    "この報告が会社の財産になるという感謝",
+                    "困難を乗り越えようとするプロ意識",
+                    "正直な報告が信頼を生むという価値",
+                ]
+                day_index = datetime.now(JST).day % len(praise_angles)
+                focus = praise_angles[day_index]
+                p1_prompt = (
+                    f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+                    f"{name}さんが「{p1_data.get('summary','問題事例')}」というP1報告を提出してくれました。\n"
+                    f"今日特に伝えたいこと：{focus}\n"
+                    f"報告への感謝と勇気を称える言葉を2〜3文で。温かく誠実なトーンで。"
+                )
+                fallbacks = [
+                    f"{name}さん、正直なご報告をありがとうございます。この勇気ある共有が会社を強くします。",
+                    f"{name}さん、貴重なP1報告に心から感謝します。問題に向き合う姿勢が素晴らしいです。",
+                    f"{name}さん、ありがとうございます。この報告が必ずチーム全体の学びになります。",
+                    f"{name}さん、正直に共有してくださり、本当にありがとうございます。",
+                    f"{name}さん、改善策まで考えてくださった誠実さに感謝します。",
+                ]
+                fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
+                p1_reply = gemini_generate(p1_prompt) or fallback
+                if group_id:
+                    push_message(group_id, f"📋 {p1_reply}")
                 continue
 
             if '【本日の業務】' in user_message:
