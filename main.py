@@ -764,7 +764,7 @@ def write_p1_to_sheet(poster_name, p1_data):
             clean(p1_data.get('partners', '')),
             clean(p1_data.get('internal', '')),
         ]
-        p1_sheet.append_row(row, value_input_option='USER_ENTERED', insert_data_option='INSERT_ROWS')
+        p1_sheet.append_row(row, value_input_option='USER_ENTERED')
         return True
     except Exception as e:
         print("P1 sheet write error:", e)
@@ -804,7 +804,7 @@ def write_p1_action_items(p1_data, poster_name):
         for kind, content in actions:
             if content and content not in ('なし', 'なし。', '-', ''):
                 row = [now_str, poster_name, project, summary, kind, content, '未実施', '', '']
-                sheet.append_row(row, value_input_option='USER_ENTERED', insert_data_option='INSERT_ROWS')
+                sheet.append_row(row, value_input_option='USER_ENTERED')
     except Exception as e:
         print("Action items write error:", e)
 
@@ -890,7 +890,7 @@ def update_p1_monthly(year_month=None):
                 updated = True
                 break
         if not updated:
-            monthly.append_row(new_row, value_input_option='USER_ENTERED', insert_data_option='INSERT_ROWS')
+            monthly.append_row(new_row, value_input_option='USER_ENTERED')
 
     except Exception as e:
         print("P1 monthly summary error:", e)
