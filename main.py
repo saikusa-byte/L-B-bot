@@ -488,7 +488,9 @@ def build_morning_summary():
     if not isinstance(staff_ids, list):
         staff_ids = []
 
-    reported = []
+    checkin_names = []
+    low_health = []
+    shared_items = []
     not_reported = []
 
     for uid in staff_ids:
@@ -496,21 +498,41 @@ def build_morning_summary():
         am_data = redis_get(f"att:{date}:{uid}:am")
         if am_data:
             health = am_data.get("health_score", "?")
-            tasks = am_data.get("tasks", [])
-            task_lines = "\n    ".join(tasks[:4]) if tasks else "（記載なし）"
-            reported.append(f"✅ {name}（体調{health}点）\n    {task_lines}")
+            shared = am_data.get("shared", "")
+            checkin_names.append(name)
+            try:
+                if float(str(health)) < 10:
+                    low_health.append(f"{name}（{health}点）")
+            except Exception:
+                pass
+            if shared and shared not in ("", "なし", "なし。"):
+                shared_items.append(f"・{name}：{shared}")
         else:
-            not_reported.append(f"⚠️ {name}")
+            not_reported.append(name)
 
     lines = [f"🌅 おはようございます、ナナさん。\n{date} 朝の報告まとめです。\n"]
-    if reported:
-        lines.append("【報告済み】")
-        lines.extend(reported)
+
+    if checkin_names:
+        lines.append(f"【本日の出社】（{len(checkin_names)}名）")
+        lines.append("、".join(checkin_names))
+    else:
+        lines.append("【本日の出社】まだ報告がありません。")
+
     if not_reported:
-        lines.append("\n【未報告】")
-        lines.extend(not_reported)
-    if not staff_ids:
-        lines.append("まだスタッフの報告が届いていません。")
+        lines.append(f"\n【未報告】")
+        lines.append("、".join(not_reported))
+
+    if low_health:
+        lines.append(f"\n【体調注意】")
+        lines.extend([f"  {l}" for l in low_health])
+    else:
+        lines.append("\n【体調】全員10点です👍")
+
+    lines.append("\n【社長への連絡事項】")
+    if shared_items:
+        lines.extend(shared_items)
+    else:
+        lines.append("  なし")
 
     return "\n".join(lines)
 
