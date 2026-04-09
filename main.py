@@ -983,9 +983,6 @@ def callback():
             is_freeform_p1 = re.search(r'【.{1,30}(報告|トラブル|問題|不具合|クレーム|遅延|事故)】', user_message)
 
             if is_structured_p1 or is_freeform_p1:
-                # まず即座に受信確認を返信（タイムアウト防止）
-                reply_message(reply_token, f"📋 {name}さん、報告を受け取りました。記録中です...")
-
                 # 構造化 or 自由形式でパース
                 if is_structured_p1:
                     p1_data = parse_p1_report(user_message)
@@ -1041,8 +1038,7 @@ def callback():
                 ]
                 fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
                 p1_reply = gemini_generate(p1_prompt) or fallback
-                if group_id:
-                    push_message(group_id, f"📋 {p1_reply}")
+                reply_message(reply_token, f"📋 {p1_reply}")
                 continue
 
             if '【本日の業務】' in user_message:
