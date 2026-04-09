@@ -764,7 +764,11 @@ def write_p1_to_sheet(poster_name, p1_data):
             clean(p1_data.get('partners', '')),
             clean(p1_data.get('internal', '')),
         ]
-        p1_sheet.append_row(row, value_input_option='USER_ENTERED')
+        # 最終行を自分で計算して書き込む（テーブル機能の干渉を防ぐ）
+        last_row = max((i + 1 for i, r in enumerate(all_rows) if any(c.strip() for c in r)), default=0)
+        next_row = last_row + 1
+        col_end = chr(ord('A') + len(row) - 1)
+        p1_sheet.update(f'A{next_row}:{col_end}{next_row}', [row], value_input_option='USER_ENTERED')
         return True
     except Exception as e:
         print("P1 sheet write error:", e)
