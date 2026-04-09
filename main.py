@@ -543,7 +543,9 @@ def build_evening_summary():
     if not isinstance(staff_ids, list):
         staff_ids = []
 
-    reported_pm = []
+    checkout_list = []
+    health_list = []
+    shared_items = []
     not_reported = []
 
     for uid in staff_ids:
@@ -553,29 +555,35 @@ def build_evening_summary():
 
         if pm_data:
             health = pm_data.get("health_score", "?")
-            work_hours = pm_data.get("work_hours", "不明")
             checkout = pm_data.get("checkout_time", "不明")
-            tasks = pm_data.get("completed_tasks", [])
-            task_lines = "・" + "\n  ・".join(tasks[:4]) if tasks else "（記載なし）"
-            reported_pm.append(
-                f"✅ {name}\n"
-                f"  体調：{health}点 | 勤務：{work_hours} | 退出：{checkout}\n"
-                f"  完了タスク：\n  {task_lines}"
-            )
+            work_hours = pm_data.get("work_hours", "")
+            shared = pm_data.get("shared", "")
+            checkout_list.append(f"  {name}：{checkout}退社（{work_hours}）")
+            health_list.append(f"  {name}：{health}点")
+            if shared and shared not in ("", "なし", "なし。"):
+                shared_items.append(f"・{name}：{shared}")
         elif am_data:
-            not_reported.append(f"⚠️ {name}（朝は報告あり・日報なし）")
+            not_reported.append(f"  {name}（日報なし）")
         else:
-            not_reported.append(f"❌ {name}（終日未報告）")
+            not_reported.append(f"  {name}（終日未報告）")
 
     lines = [f"🌙 お疲れ様です、ナナさん。\n{date} 夜の報告まとめです。\n"]
-    if reported_pm:
-        lines.append("【日報済み】")
-        lines.extend(reported_pm)
+
+    lines.append("【退社時間】")
+    lines.extend(checkout_list if checkout_list else ["  まだ報告がありません"])
+
     if not_reported:
-        lines.append("\n【未報告・欠勤】")
+        lines.append("\n【未報告】")
         lines.extend(not_reported)
-    if not staff_ids:
-        lines.append("本日のスタッフ報告はありませんでした。")
+
+    lines.append("\n【体調】")
+    lines.extend(health_list if health_list else ["  データなし"])
+
+    lines.append("\n【社長への連絡事項】")
+    if shared_items:
+        lines.extend(shared_items)
+    else:
+        lines.append("  なし")
 
     return "\n".join(lines)
 
