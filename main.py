@@ -1028,58 +1028,32 @@ def callback():
                 if is_structured_p1:
                     p1_data = parse_p1_report(user_message)
                 else:
-                    # 自由形式：Geminiで構造化
-                    parse_prompt = (
-                        f"以下の報告メッセージを読んで、JSON形式で情報を抽出してください。\n"
-                        f"キー：date（日付）, project（案件名）, summary（概要1行）, content（内容詳細）, cause（原因）, client（クライアント対応）, partners（関係者対応）, internal（社内対応）\n"
-                        f"不明な項目は空文字にしてください。必ずJSONのみ返してください。\n\n"
-                        f"報告：\n{user_message}"
-                    )
-                    parsed_json = gemini_generate(parse_prompt) or '{}'
-                    try:
-                        parsed_json = re.sub(r'```(?:json)?\n?', '', parsed_json).strip('`').strip()
-                        p1_data = json.loads(parsed_json)
-                    except Exception:
-                        p1_data = {
-                            'date': today_jst(),
-                            'project': re.search(r'【(.+?)】', user_message).group(1) if re.search(r'【(.+?)】', user_message) else '',
-                            'summary': user_message[:50],
-                            'content': user_message,
-                            'cause': '', 'client': '', 'partners': '', 'internal': ''
-                        }
+                    # 自由形式：そのまま保存（タイムアウト防止のためGemini解析しない）
+                    header_match = re.search(r'【(.+?)】', user_message)
+                    kw_match = next((kw for kw in P1_KEYWORDS if kw in user_message), '')
+                    p1_data = {
+                        'date': today_jst(),
+                        'project': header_match.group(1) if header_match else kw_match,
+                        'summary': (user_message.strip().split('\n')[3] if len(user_message.strip().split('\n')) > 3 else user_message[:50]),
+                        'content': user_message,
+                        'cause': '', 'client': '', 'partners': '', 'internal': ''
+                    }
 
-                # スプレッドシート書き込み
-                result = write_p1_to_sheet(name, p1_data)
+                # スプレッドシート書き込み（シンプルに）
+                write_p1_to_sheet(name, p1_data)
                 write_p1_action_items(p1_data, name)
 
-                # Geminiで感謝メッセージを生成してpushで送信
-                praise_angles = [
-                    "問題に真剣に向き合った誠実さと勇気",
-                    "失敗を隠さず共有してくれた誠実さ",
-                    "改善策まで考えて報告してくれた責任感",
-                    "チーム全体のために声を上げた勇気",
-                    "この報告が会社の財産になるという感謝",
-                    "困難を乗り越えようとするプロ意識",
-                    "正直な報告が信頼を生むという価値",
+                # 日付ベースで返信（Gemini不使用→タイムアウト防止）
+                replies = [
+                    f"📋 {name}さん、報告をありがとうございます。この共有が会社を強くします。記録しました。",
+                    f"📋 {name}さん、正直な報告に感謝します。問題に向き合う勇気が素晴らしいです。記録しました。",
+                    f"📋 {name}さん、ありがとうございます。この報告が必ずチーム全体の学びになります。記録しました。",
+                    f"📋 {name}さん、貴重な共有をありがとうございます。改善につなげていきます。記録しました。",
+                    f"📋 {name}さん、報告に感謝します。声を上げてくれる姿勢がチームの力です。記録しました。",
+                    f"📋 {name}さん、誠実なご報告をありがとうございます。しっかり記録しました。",
+                    f"📋 {name}さん、ありがとうございます。プロとしての責任感ある報告、記録しました。",
                 ]
-                day_index = datetime.now(JST).day % len(praise_angles)
-                focus = praise_angles[day_index]
-                p1_prompt = (
-                    f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
-                    f"{name}さんが「{p1_data.get('summary','問題事例')}」というP1報告を提出してくれました。\n"
-                    f"今日特に伝えたいこと：{focus}\n"
-                    f"報告への感謝と勇気を称える言葉を2〜3文で。温かく誠実なトーンで。"
-                )
-                fallbacks = [
-                    f"{name}さん、正直なご報告をありがとうございます。この勇気ある共有が会社を強くします。",
-                    f"{name}さん、貴重なP1報告に心から感謝します。問題に向き合う姿勢が素晴らしいです。",
-                    f"{name}さん、ありがとうございます。この報告が必ずチーム全体の学びになります。",
-                    f"{name}さん、正直に共有してくださり、本当にありがとうございます。",
-                    f"{name}さん、改善策まで考えてくださった誠実さに感謝します。",
-                ]
-                fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
-                p1_reply = gemini_generate(p1_prompt) or fallback
-                reply_message(reply_token, f"📋 {p1_reply}")
+                reply_message(reply_token, replies[datetime.now(JST).day % len(replies)])
                 continue
 
             if '【本日の業務】' in user_message:
