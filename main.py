@@ -1014,7 +1014,14 @@ def callback():
                 redis_set(f"staff:{user_id}:name", name)
 
             is_structured_p1 = '①日時' in user_message and '②案件名' in user_message
-            is_freeform_p1 = re.search(r'【.{1,30}(報告|トラブル|問題|不具合|クレーム|遅延|事故)】', user_message)
+            P1_KEYWORDS = [
+                'トラブル共有', '問題共有', '不具合報告', 'クレーム報告', '是正報告',
+                '即時報告', 'トラブル報告', '現場報告', '障害報告', '事故報告',
+            ]
+            is_freeform_p1 = (
+                re.search(r'【.{1,30}(報告|トラブル|問題|不具合|クレーム|遅延|事故|是正)】', user_message)
+                or any(kw in user_message for kw in P1_KEYWORDS)
+            )
 
             if is_structured_p1 or is_freeform_p1:
                 # 構造化 or 自由形式でパース
