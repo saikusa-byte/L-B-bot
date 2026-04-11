@@ -1076,48 +1076,36 @@ def callback():
 
             if '【日報】' in user_message:
                 report_data = parse_evening_report(user_message)
-                save_evening_report(user_id, name, report_data, timestamp)
-
-                praise_angles = [
-                    "今日完了したタスクへの取り組み姿勢や丁寧さ",
-                    "体調管理・コンディションへの意識の高さ",
-                    "報告の誠実さや情報共有の姿勢",
-                    "仕事への粘り強さ・継続力",
-                    "チームへの貢献や周囲への気配り",
-                    "日々の積み重ねと成長",
-                    "プロとしての仕事への誠実な向き合い方",
-                ]
-                day_index = datetime.now(JST).day % len(praise_angles)
-                focus = praise_angles[day_index]
 
                 tasks = report_data.get("completed_tasks", [])
                 health = report_data.get("health_score", "")
                 checkout = report_data.get("checkout_time", "")
-                context = f"完了タスク：{', '.join(tasks)}\n体調：{health}点\n退社：{checkout}"
+                context = f"完了タスク：{', '.join(tasks) if tasks else '記載なし'}\n体調：{health}点\n退社：{checkout}"
 
+                # Geminiで一人ひとり違うねぎらいメッセージを生成（先に返信）
                 pm_prompt = (
                     f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
-                    f"社長・七種珠水の言葉として、{name}さんへのメッセージを届けます。\n\n"
-                    f"【{name}さんの今日の報告内容】\n{context}\n\n"
-                    f"【今日特に注目するポイント】{focus}\n\n"
-                    f"以下を意識してメッセージを作成してください：\n"
-                    f"・報告の『中身』を具体的に読み込んで言及する（タスク名・体調・内容に直接触れる）\n"
-                    f"・数字や具体的な行動に感動・共感を示す\n"
-                    f"・{name}さんのプロ意識や人間性を七種社長として心から称える\n"
-                    f"・「報告してくれてありがとう」ではなく「あなたの仕事ぶりに感動した」という視点で\n"
-                    f"・末尾に「七種より」と添える\n\n"
-                    f"3〜4文。心に響く、温かく力強いトーンで。"
+                    f"社長・七種珠水の言葉として、{name}さんへ今日の締めくくりのメッセージを届けます。\n\n"
+                    f"【{name}さんの今日の報告】\n{context}\n\n"
+                    f"必ず以下を含めてください：\n"
+                    f"・今日一日頑張ったことへの心からのねぎらい\n"
+                    f"・報告内容（タスク・体調・退社時刻）の具体的な内容に触れて称える\n"
+                    f"・{name}さん個人への温かい一言\n"
+                    f"・末尾に「ゆっくり休んでください。七種より」\n\n"
+                    f"3〜4文。毎回必ず違う表現で。温かく力強いトーンで。"
                 )
                 fallbacks = [
-                    f"{name}さん、今日も一日お疲れ様でした！丁寧な日報をありがとうございます🌙",
-                    f"{name}さん、お疲れ様でした！今日の頑張りがきっと明日につながります✨",
-                    f"{name}さん、日報ありがとうございます。今日も誠実に仕事に向き合いましたね🌙",
-                    f"{name}さん、お疲れ様でした！毎日の積み重ねが力になっています💪",
-                    f"{name}さん、今日もありがとうございました。ゆっくり休んでください🌙",
+                    f"{name}さん、今日も一日本当にお疲れ様でした。あなたの誠実な仕事ぶりに、いつも感謝しています。ゆっくり休んでください。七種より🌙",
+                    f"{name}さん、今日も頑張ってくれてありがとうございます。毎日の積み重ねが必ず力になります。ゆっくり休んでください。七種より🌙",
+                    f"{name}さん、お疲れ様でした。今日のあなたの仕事が、L&Bを前に進めています。ゆっくり休んでください。七種より🌙",
                 ]
-                fallback = fallbacks[datetime.now(JST).day % len(fallbacks)]
+                now = datetime.now(JST)
+                fallback = fallbacks[(now.day + now.hour) % len(fallbacks)]
                 pm_reply = gemini_generate(pm_prompt) or fallback
                 reply_message(reply_token, f"✅ {pm_reply}")
+
+                # 返信後に保存
+                save_evening_report(user_id, name, report_data, timestamp)
                 continue
 
             # その他のグループメッセージには返答しない
