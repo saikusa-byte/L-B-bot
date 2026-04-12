@@ -374,16 +374,51 @@ def parse_morning_report(text):
 
 def parse_evening_report(text):
     result = {"raw": text}
-    m = re.search(r'体調[パフォーマンス]*点\n(\d+)点', text)
-    if m:
-        result["health_score"] = m.group(1)
-    m2 = re.search(r'退出時間[：:]\s*(\d+)[：:](\d+)', text)
-    if m2:
-        result["checkout_time"] = f"{m2.group(1)}:{m2.group(2)}"
-    m3 = re.search(r'完了タスク[^)\n]*\n(.*?)(?:\n[④-⑩]|\Z)', text, re.DOTALL)
+
+    # 体調（複数パターン対応）
+    for pat in [r'体調[パフォーマンス]*点?\s*\n\s*(\d+)', r'体調[：:]\s*(\d+)', r'(\d+)点']:
+        m = re.search(pat, text)
+        if m:
+            score = m.group(1)
+            if 0 <= int(score) <= 10:
+                result["health_score"] = score
+                break
+
+    # 退社時刻（複数パターン対応）
+    time_patterns = [
+        r'退出時間[：:]\s*(\d{1,2})[：:](\d{2})',
+        r'退社時間[：:]\s*(\d{1,2})[：:](\d{2})',
+        r'退社時刻[：:]\s*(\d{1,2})[：:](\d{2})',
+        r'作業終了[：:]\s*(\d{1,2})[：:](\d{2})',
+        r'終了時間[：:]\s*(\d{1,2})[：:](\d{2})',
+        r'退社[：:]\s*(\d{1,2})[：:](\d{2})',
+        r'(\d{1,2})[：:](\d{2})\s*退社',
+        r'(\d{1,2})[：:](\d{2})\s*退出',
+    ]
+    for pat in time_patterns:
+        m2 = re.search(pat, text)
+        if m2:
+            h = m2.group(1).zfill(2)
+            mn = m2.group(2)
+            result["checkout_time"] = f"{h}:{mn}"
+            break
+
+    # 完了タスク（止め文字を緩く）
+    m3 = re.search(r'完了タスク[^\n]*\n(.*?)(?:\n[①-⑩❶-❿]|\Z)', text, re.DOTALL)
     if m3:
-        tasks = [t.strip().lstrip('・') for t in m3.group(1).strip().split('\n') if t.strip()]
+        tasks = []
+        for t in m3.group(1).strip().split('\n'):
+            t = t.strip().lstrip('・').strip()
+            # 退社時刻情報はタスクから除外
+            if t and not re.search(r'退[社出]|作業終了|終了時間', t):
+                tasks.append(t)
         result["completed_tasks"] = tasks
+
+    # 共有事項
+    m4 = re.search(r'(?:共有事項|社長への連絡)[^\n]*\n?(.*?)$', text, re.DOTALL)
+    if m4:
+        result["shared"] = m4.group(1).strip()
+
     return result
 
 
