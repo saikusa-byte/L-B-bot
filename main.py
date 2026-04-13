@@ -749,6 +749,40 @@ def send_encouraging_messages():
         if msg:
             push_message(uid, f"💌 エリザベスより\n\n{msg}")
 
+    # 全員10点チェック
+    reported_pm = [uid for uid in staff_ids if redis_get(f"att:{date}:{uid}:pm")]
+    if reported_pm:
+        all_ten = all(
+            str(redis_get(f"att:{date}:{uid}:pm").get("health_score", "")) == "10"
+            for uid in reported_pm
+        )
+        if all_ten:
+            ten_prompt = (
+                f"あなたはエリザベスです。株式会社L&Bの専属AIアシスタント秘書です。\n"
+                f"今日、全スタッフ{len(reported_pm)}名全員が体調パフォーマンス10点満点で日報を提出しました！\n\n"
+                f"これはチームとして素晴らしい快挙です。\n"
+                f"グループ全体に向けて、以下の要素を含む特別な称賛メッセージを送ってください：\n"
+                f"・全員が10点満点だったという喜びと驚き\n"
+                f"・一人ひとりの日々の自己管理・プロ意識への称賛\n"
+                f"・チームとして揃ったことへの感動\n"
+                f"・明日もこの状態が続くようにという期待と応援\n\n"
+                f"毎回必ず違う表現で。明るく感動的なトーンで。末尾に「社長より」と添えて。\n"
+                f"全体で4〜5文。"
+            )
+            ten_msg = gemini_generate(ten_prompt)
+            if not ten_msg:
+                ten_msg = (
+                    f"🌟 今日は全員が体調パフォーマンス10点満点でした！\n"
+                    f"一人ひとりの自己管理とプロ意識の高さに、心から感動しています。\n"
+                    f"チームみんなが最高のコンディションで揃った今日は、特別な一日です。\n"
+                    f"この素晴らしい状態を明日も続けましょう。社長より"
+                )
+            group_ids = redis_get("group_ids") or []
+            if not isinstance(group_ids, list):
+                group_ids = []
+            for gid in group_ids:
+                push_message(gid, f"🎉 {ten_msg}")
+
 
 # ============================================================
 # P1報告内容
